@@ -1,89 +1,137 @@
-# Email-to-Telegram Important Summary - Project Context
+# N8n Automation Project - Context
 
 ## Quick Resume
 After restarting Claude Code, say:
-> "Continue building the email-to-telegram workflow. Read PROJECT_CONTEXT.md for context."
+> "Continue working on my n8n workflows. Read PROJECT_CONTEXT.md for context."
 
 ---
 
-## Project Goal
-Build an n8n workflow that:
-1. Monitors Gmail for new emails (multiple accounts)
-2. Uses AI (Google Gemini) to classify importance
-3. Sends Telegram notifications for important emails only
-4. Includes a direct link to open the email in the correct Gmail inbox
+## Workflows Overview
 
-## Decisions Made
+| Workflow | ID | Status | Purpose |
+|----------|----|--------|---------|
+| Email-to-Telegram | `arJbFrfKsJguy9tp` | Active | AI email classification + Telegram alerts |
+| Stock Market Alert | `782rqSIRL2xZ3wqv` | Active | US + TSX stock price alerts |
+| Error Alert | `Fhmq0omGZpu98HN3` | Active | Sends Telegram on any workflow failure |
+
+**n8n Instance**: https://n8n.srv1299342.hstgr.cloud
+
+---
+
+## 1. Email-to-Telegram Important Summary
+
+### Goal
+Monitor Gmail for new emails, classify importance with AI (Google Gemini), send Telegram notifications for HIGH/MEDIUM priority only, with a direct link to open the email.
+
+### Decisions
 
 | Decision | Choice |
 |----------|--------|
-| Email Provider | Gmail (OAuth2) - supports multiple accounts |
+| Email Provider | Gmail (OAuth2) - multiple accounts |
 | AI Service | Google Gemini 2.5 Flash (free tier) |
 | AI Node | Basic LLM Chain (not Agent - Agent requires tools) |
 | Messaging | Telegram Bot (N8n517bot) |
 | Importance Criteria | Business-critical, Action-required, VIP senders |
 | Output Parsing | Code node with JSON.parse (not Structured Output Parser - incompatible with Gemini) |
 
-## Classification Framework
-
-### Priority Levels
-- **HIGH**: urgent, invoice, payment, contract, legal, emergency, deadline, VIP senders
-- **MEDIUM**: meeting, call, schedule, review, feedback, approval, questions
-- **LOW**: newsletters, promotions, automated notifications (no alert sent)
-
-### Categories
-Client, Invoice, Meeting, Support, Newsletter, Notification, Personal, Other
-
----
-
-## Workflow Architecture
-
+### Architecture
 ```
 Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM only) → Format Message → Telegram
 ```
 
-### Nodes (7 total)
+### Nodes (8)
 1. **Gmail Trigger** - Poll every minute for unread emails (Account 1: phil@yufora.com)
-2. **Gmail Trigger1** - Poll every minute for unread emails (Account 2 - needs connecting to Prepare Email Data)
-3. **Prepare Email Data** (Set node) - Extract sender, subject, body preview, emailId, recipientEmail
+2. **Gmail Trigger1** - Poll every minute for unread emails (Account 2 - needs connecting)
+3. **Prepare Email Data** (Set) - Extract sender, subject, body preview, emailId, recipientEmail
 4. **Google Gemini** - Gemini 2.5 Flash model (sub-node connected to LLM Chain)
-5. **AI Email Classifier** (Basic LLM Chain) - Classifies email, returns JSON with priority/category/summary
-6. **Filter Important Only** (IF node) - Pass only HIGH/MEDIUM priority
-7. **Format Telegram Message** (Code) - Rich formatting with emojis + Gmail deep link with authuser
+5. **AI Email Classifier** (Basic LLM Chain) - Classifies email, returns JSON
+6. **Filter Important Only** (IF) - Pass only HIGH/MEDIUM priority
+7. **Format Telegram Message** (Code) - Rich formatting with emojis + Gmail deep link
 8. **Send Telegram Alert** - Sends to chat ID 8469449994
+
+### Classification Framework
+
+**Priority**: HIGH (urgent, invoice, payment, contract, legal, emergency) | MEDIUM (meeting, call, review, feedback, approval) | LOW (newsletter, promotion, automated - no alert)
+
+**Categories**: Client, Invoice, Meeting, Support, Newsletter, Notification, Personal, Other
 
 ---
 
-## Key Technical Decisions & Fixes Applied
+## 2. Stock Market Alert
 
-### Why Basic LLM Chain instead of Agent
-- Agent node **requires at least one tool** sub-node connected
-- We don't need tools, just a simple LLM classification call
-- LLM Chain is simpler and more reliable for this use case
+### Goal
+Monitor US and Toronto (TSX/TSXV) stocks from a Google Sheets watchlist, check live prices, send Telegram alerts when stocks cross upper/lower price limits with cooldown to prevent spam.
 
-### Why no Structured Output Parser
-- Gemini wraps JSON output in markdown code blocks (```json...```)
-- The parser couldn't handle this and threw "Model output doesn't fit required format"
-- Upgrading parser to v1.3 introduced a new "Model" input requirement
-- **Solution**: Parse JSON directly in the Code node with fallback regex extraction
+### Decisions
 
-### Expression Format Fix
-- n8n requires `=` prefix on expressions mixed with text (e.g., `=From: {{ $json.sender }}`)
-- Without the prefix, n8n throws "WorkflowHasIssuesError" but doesn't say why
-- Fixed using `n8n_autofix_workflow` tool
+| Decision | Choice |
+|----------|--------|
+| US stocks API | Twelve Data (free: 800 calls/day, 8/min) |
+| Canadian stocks API | Yahoo Finance (free, unlimited) |
+| Watchlist | Google Sheets (Sheet ID: `18nROXFSRms0OYLcl3Eye7bJ_iB3bdkusydLI4vm8rMU`) |
+| Alerts | Telegram (reuse N8n517bot) |
+| Polling | Every 5 min, Mon-Fri 9:30-16:00 ET |
+| Timezone | America/Toronto |
 
-### Gmail Data Field Mapping
-- Gmail Trigger with `simple: true` returns flat fields: `$json.From`, `$json.Subject`, `$json.snippet`
-- NOT nested fields like `$json.from.text` (that's the non-simple format)
+### Architecture
+```
+Schedule Trigger (market hours) → Google Sheets → Parse Watchlist → Fetch Price (HTTP) → Smart Alert Logic → IF alert → Format + Telegram → Update Sheet
+```
 
-### Gmail Link with Correct Account
-- Format: `https://mail.google.com/mail/u/?authuser=EMAIL#all/EMAILID`
-- Uses `recipientEmail` (To field) to open the correct inbox
-- Works across multiple Gmail/Workspace accounts
+### Nodes (9)
+1. **Market Hours Trigger** (Schedule) - Every 5 min, Mon-Fri, 9:30-16:00 ET
+2. **Read Stock Watchlist** (Google Sheets) - Read watchlist
+3. **Parse Watchlist Data** (Code) - Validate rows, route to correct API (Twelve Data for US, Yahoo Finance for Canadian)
+4. **Fetch Live Stock Price** (HTTP Request) - URL from `$json.apiUrl`, User-Agent header for Yahoo
+5. **Smart Alert Logic** (Code) - Compare price vs limits, check cooldown, handle both API response formats
+6. **Filter Alerts** (IF) - Pass only `shouldAlert === 'true'`
+7. **Format Alert Message** (Code) - Rich Telegram message with price/change/limits
+8. **Send Telegram Alert** - To chat 8469449994
+9. **Update Alert History** (Google Sheets) - Write back last_alert_price/time
 
-### Telegram Operation Parameter
-- The Telegram node **requires** `operation: "sendMessage"` explicitly
-- This gets lost during full workflow updates via API - must be re-set
+### Google Sheets Watchlist Columns
+`symbol | upper_limit | lower_limit | direction | cooldown_minutes | last_alert_price | last_alert_time`
+
+### Stock Symbol Formats
+- US: `AAPL`, `TSLA`, `MSFT`
+- Toronto (TSX): `SHOP.TO`, `TD.TO`, `RY.TO`
+- Toronto (TSXV): `ODV.V`
+- Note: Twelve Data uses `.TRT`/`.TRV` suffixes but small-cap Canadian stocks are behind their paywall — Yahoo Finance handles all Canadian stocks for free
+
+### Dual-API Routing
+The Parse Watchlist Data node pre-computes `apiUrl` per stock:
+- Canadian (`.TO`, `.V`, `.TRT`, `.TRV`) → Yahoo Finance: `https://query1.finance.yahoo.com/v8/finance/chart/SYMBOL?interval=1d&range=1d`
+- US → Twelve Data: `https://api.twelvedata.com/quote?symbol=SYMBOL&apikey=KEY`
+
+The Smart Alert Logic node handles both response formats (Yahoo's `chart.result[0].meta` vs Twelve Data's flat `close`/`change`).
+
+---
+
+## 3. Error Alert Workflow
+
+### Architecture
+```
+Error Trigger → Format Error Message (Code) → Send Telegram Error Alert
+```
+
+Linked to other workflows via `errorWorkflow` setting. Sends formatted Telegram message with workflow name, error message, timestamp, and execution link.
+
+---
+
+## Key Technical Lessons
+
+| Issue | Root Cause | Fix |
+|-------|-----------|-----|
+| Agent node fails | Requires at least one tool sub-node | Use Basic LLM Chain instead |
+| Structured Output Parser fails with Gemini | Gemini wraps JSON in markdown code blocks | Parse JSON in Code node with regex fallback |
+| Expression format errors | n8n requires `=` prefix on mixed expressions | Use `n8n_autofix_workflow` tool |
+| Gmail field mapping | `simple: true` returns flat fields (`$json.From`) not nested | Use `$json.From`, `$json.Subject`, `$json.snippet` |
+| Telegram `operation` lost on update | Full workflow update via API drops it | Always re-set `operation: "sendMessage"` |
+| IF node boolean vs string | `typeValidation: "strict"` rejects boolean for string comparison | Output `shouldAlert` as string `'true'`/`'false'` |
+| Canadian stocks 404 on Twelve Data | Small-cap TSX/TSXV behind paywall | Use Yahoo Finance for all Canadian stocks |
+| n8n editor not reflecting API changes | Editor caches workflow in memory | Refresh browser after MCP API updates |
+| Cron running at wrong time | Server timezone Europe/Berlin | Set `settings.timezone: "America/Toronto"` |
+| `n8n_update_partial_workflow` syntax | `updateNode` needs `updates` key not `properties` | Use `updates` key |
 
 ---
 
@@ -95,42 +143,8 @@ Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM
 | Gmail (Account 2) | Gmail OAuth2 (2nd account) | Configured in UI |
 | Google Gemini | Google PaLM API | x4jAdG2mahUmKbmW |
 | Telegram | Telegram API (N8n517bot) | KSDajeVj98U3LS8y |
-
-## Deployed Workflow
-
-- **Workflow ID**: `arJbFrfKsJguy9tp`
-- **URL**: https://n8n.srv1299342.hstgr.cloud/workflow/arJbFrfKsJguy9tp
-- **Status**: Active (Published)
-- **Validation**: Valid (0 errors)
-- **Error Workflow**: `Fhmq0omGZpu98HN3` (Error Alert → Telegram)
-
-### Error Handling
-- Dedicated error workflow sends Telegram alert on any failure
-- Google Gemini node: retryOnFail (3 attempts, 5s delay)
-- Send Telegram Alert node: retryOnFail (3 attempts, 5s delay)
-
----
-
-## Current Status
-
-| Task | Status |
-|------|--------|
-| Plan approved | ✅ |
-| Workflow design complete | ✅ |
-| MCP connection | ✅ Connected |
-| Deploy workflow to n8n | ✅ |
-| Configure credentials | ✅ |
-| Fix data mapping | ✅ |
-| Fix AI node (Agent → LLM Chain) | ✅ |
-| Fix Structured Output Parser | ✅ Removed, using Code node |
-| Fix expression format | ✅ |
-| Fix Telegram auth | ✅ |
-| Add Gmail deep link | ✅ |
-| Add second Gmail account | ⚠️ Trigger added, needs connecting |
-| Setup documentation | ✅ |
-| Workflow live & working | ✅ |
-| Error notification workflow | ✅ Fhmq0omGZpu98HN3 |
-| Retry on flaky nodes | ✅ Gemini + Telegram |
+| Google Sheets | Google Sheets OAuth2 (separate account) | Configured in UI |
+| Twelve Data | HTTP Query Auth (`TwelveApiKey`) | Configured in UI |
 
 ---
 
@@ -138,43 +152,24 @@ Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM
 
 | File | Purpose |
 |------|---------|
-| `.env.example` | Credential template with instructions |
-| `.env` | Actual credentials (private) |
-| `.gitignore` | Protects secrets from git |
-| `SETUP.md` | Step-by-step setup guide |
-| `workflow.json` | Original workflow definition (outdated - live version has fixes) |
-| `.mcp.json` | MCP config for n8n API |
+| `workflow_email.json` | Clean export of Email-to-Telegram workflow (credentials stripped) |
+| `workflow_stock.json` | Clean export of Stock Market Alert workflow (credentials stripped) |
+| `workflow_error.json` | Clean export of Error Alert workflow (credentials stripped) |
 | `PROJECT_CONTEXT.md` | This file |
+| `SETUP.md` | Step-by-step setup guide |
+| `.env.example` | Credential template with instructions |
+| `.env` | Actual credentials (private, gitignored) |
+| `.mcp.json` | MCP config for n8n API (private, gitignored) |
+| `.gitignore` | Protects secrets from git |
+| `twelvedata_canadian_stocks.csv` | TSX stocks list from Twelve Data (1,108) |
+| `twelvedata_canadian_venture_stocks.csv` | TSXV stocks list from Twelve Data (1,700) |
 
----
-
-## Stock Market Alert Workflow
-
-- **Workflow ID**: `782rqSIRL2xZ3wqv`
-- **URL**: https://n8n.srv1299342.hstgr.cloud/workflow/782rqSIRL2xZ3wqv
-- **Status**: Created (needs credentials)
-- **Error Workflow**: Linked to `Fhmq0omGZpu98HN3`
-
-### Architecture
-```
-Schedule Trigger (every 5 min, Mon-Fri 9:30-16:00 ET) → Google Sheets watchlist → Parse → Twelve Data API → Smart Alert Logic → IF alert → Telegram + Update Sheet
-```
-
-### Setup Required
-1. Get Twelve Data API key (free) at https://twelvedata.com/register
-2. Create Google Sheet with columns: symbol | upper_limit | lower_limit | direction | cooldown_minutes | last_alert_price | last_alert_time
-3. Connect Google Sheets + Telegram credentials in n8n UI
-4. Replace `YOUR_GOOGLE_SHEET_ID_HERE` and `YOUR_TWELVE_DATA_API_KEY` in workflow nodes
-
-### Stock Symbol Format
-- US: `AAPL`, `TSLA`, `MSFT`
-- Toronto (TSX): `SHOP.TO`, `TD.TO`, `RY.TO`
+**GitHub**: https://github.com/Philnow/n8n-email-telegram
 
 ---
 
 ## Pending / Future
 
 1. **Connect Gmail Trigger1** → Prepare Email Data (drag connection in n8n UI)
-2. ~~Consider adding error notification workflow~~ ✅ Done
-3. Consider testing AI reliability with sample emails
-4. Optionally export updated workflow.json from n8n as backup
+2. Consider testing AI reliability with sample emails
+3. Consider adding more stock alert features (volume alerts, daily summary)
