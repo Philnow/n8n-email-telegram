@@ -1,0 +1,299 @@
+{
+  "name": "Stock Market Alert \u2014 US + Toronto",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Market Hours Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 9-15 * * 1-5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "read-watchlist",
+      "name": "Read Stock Watchlist",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "range": "Sheet1!A:G",
+        "options": {}
+      }
+    },
+    {
+      "id": "parse-watchlist",
+      "name": "Parse Watchlist Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const items = [];\nconst inputData = $input.all();\n\nfor (const row of inputData) {\n  const d = row.json;\n  if (d.symbol && d.upper_limit && d.lower_limit) {\n    const sym = d.symbol.trim();\n    const isCanadian = sym.includes('.TRT') || sym.includes('.TRV') || sym.includes('.TO') || sym.includes('.V');\n    const yahooSymbol = sym.replace('.TRT', '.TO').replace('.TRV', '.V');\n    const apiUrl = isCanadian\n      ? 'https://query1.finance.yahoo.com/v8/finance/chart/' + yahooSymbol + '?interval=1d&range=1d'\n      : 'https://api.twelvedata.com/quote?symbol=' + sym + '&apikey=YOUR_TWELVE_DATA_API_KEY';\n    items.push({\n      json: {\n        symbol: sym,\n        upper_limit: parseFloat(d.upper_limit),\n        lower_limit: parseFloat(d.lower_limit),\n        direction: (d.direction || 'both').toLowerCase(),\n        cooldown_minutes: parseInt(d.cooldown_minutes) || 15,\n        last_alert_price: parseFloat(d.last_alert_price) || 0,\n        last_alert_time: d.last_alert_time || '',\n        row_number: row.json.row_number,\n        apiUrl,\n        isCanadian\n      }\n    });\n  }\n}\n\nreturn items;"
+      }
+    },
+    {
+      "id": "fetch-price",
+      "name": "Fetch Live Stock Price",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "url": "={{ $json.apiUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "smart-alert",
+      "name": "Smart Alert Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const watchlist = $('Parse Watchlist Data').item.json;\nconst raw = $input.item.json;\n\nlet price, change, percentChange, name;\n\nif (raw.chart) {\n  // Yahoo Finance response (Canadian stocks)\n  const meta = raw.chart.result && raw.chart.result[0] && raw.chart.result[0].meta;\n  if (!meta || !meta.regularMarketPrice) {\n    return { json: { shouldAlert: 'false', symbol: watchlist.symbol, error: 'No Yahoo Finance data' } };\n  }\n  price = meta.regularMarketPrice;\n  const prevClose = meta.chartPreviousClose || price;\n  const diff = price - prevClose;\n  change = diff.toFixed(4);\n  percentChange = prevClose ? ((diff / prevClose) * 100).toFixed(4) : '0';\n  name = meta.longName || meta.shortName || watchlist.symbol;\n} else {\n  // Twelve Data response (US stocks)\n  if (raw.status === 'error' || !raw.close) {\n    return { json: { shouldAlert: 'false', symbol: watchlist.symbol, error: raw.message || 'No data' } };\n  }\n  price = parseFloat(raw.close);\n  change = raw.change || '0';\n  percentChange = raw.percent_change || '0';\n  name = raw.name || watchlist.symbol;\n}\n\nconst upper = watchlist.upper_limit;\nconst lower = watchlist.lower_limit;\nconst direction = watchlist.direction;\nconst cooldown = watchlist.cooldown_minutes;\nconst lastAlertTime = watchlist.last_alert_time;\n\nif (lastAlertTime) {\n  const lastAlert = new Date(lastAlertTime);\n  const now = new Date();\n  const diffMin = (now - lastAlert) / 60000;\n  if (diffMin < cooldown) {\n    return { json: { shouldAlert: 'false', symbol: watchlist.symbol, reason: 'cooldown' } };\n  }\n}\n\nlet alertType = null;\nlet limit = null;\n\nif ((direction === 'both' || direction === 'above') && price >= upper) {\n  alertType = 'ABOVE';\n  limit = upper;\n} else if ((direction === 'both' || direction === 'below') && price <= lower) {\n  alertType = 'BELOW';\n  limit = lower;\n}\n\nif (!alertType) {\n  return { json: { shouldAlert: 'false', symbol: watchlist.symbol } };\n}\n\nreturn {\n  json: {\n    shouldAlert: 'true',\n    symbol: watchlist.symbol,\n    name,\n    alertType,\n    price,\n    limit,\n    change,\n    percentChange,\n    upper_limit: upper,\n    lower_limit: lower,\n    row_number: watchlist.row_number\n  }\n};"
+      }
+    },
+    {
+      "id": "filter-alerts",
+      "name": "Filter Alerts",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "has-alert",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.shouldAlert }}"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "format-msg",
+      "name": "Format Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const d = $input.item.json;\nconst emoji = d.alertType === 'ABOVE' ? '\ud83d\udd34' : '\ud83d\udfe2';\nconst direction = d.alertType === 'ABOVE' ? 'above UPPER' : 'below LOWER';\nconst sign = parseFloat(d.change) >= 0 ? '+' : '';\nconst now = new Date().toLocaleString('en-CA', { timeZone: 'America/Toronto', dateStyle: 'short', timeStyle: 'short' });\n\nconst message = `\ud83d\udcc8 *STOCK ALERT*\\n\\n${emoji} *${d.symbol}* crossed ${direction} limit\\n\ud83d\udcb0 *Price:* $${parseFloat(d.price).toFixed(2)} | *Limit:* $${parseFloat(d.limit).toFixed(2)}\\n\ud83d\udcca *Change:* ${sign}${d.change} (${sign}${d.percentChange}%)\\n\u23f0 *Time:* ${now}\\n\\n\ud83d\udccb Limits: \u2191$${d.upper_limit} \u2193$${d.lower_limit}`;\n\nreturn {\n  json: {\n    telegramMessage: message,\n    symbol: d.symbol,\n    price: d.price,\n    row_number: d.row_number\n  }\n};"
+      }
+    },
+    {
+      "id": "send-telegram",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        0
+      ],
+      "parameters": {
+        "chatId": "YOUR_CHAT_ID_HERE",
+        "text": "={{ $json.telegramMessage }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "update-sheet",
+      "name": "Update Alert History",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1568,
+        208
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Sheet1"
+        },
+        "range": "Sheet1!A:G",
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "symbol"
+          ],
+          "schema": []
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Market Hours Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Stock Watchlist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Stock Watchlist": {
+      "main": [
+        [
+          {
+            "node": "Parse Watchlist Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Watchlist Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch Live Stock Price",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Live Stock Price": {
+      "main": [
+        [
+          {
+            "node": "Smart Alert Logic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smart Alert Logic": {
+      "main": [
+        [
+          {
+            "node": "Filter Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Alerts": {
+      "main": [
+        [
+          {
+            "node": "Format Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update Alert History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "Fhmq0omGZpu98HN3",
+    "timezone": "America/Toronto"
+  }
+}

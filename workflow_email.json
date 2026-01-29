@@ -1,0 +1,297 @@
+{
+  "name": "Email-to-Telegram Important Summary",
+  "nodes": [
+    {
+      "id": "prepare-data",
+      "name": "Prepare Email Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sender",
+              "name": "sender",
+              "type": "string",
+              "value": "={{ $json.From }}"
+            },
+            {
+              "id": "senderEmail",
+              "name": "senderEmail",
+              "type": "string",
+              "value": "={{ $json.From }}"
+            },
+            {
+              "id": "subject",
+              "name": "subject",
+              "type": "string",
+              "value": "={{ $json.Subject }}"
+            },
+            {
+              "id": "bodyPreview",
+              "name": "bodyPreview",
+              "type": "string",
+              "value": "={{ $json.snippet }}"
+            },
+            {
+              "id": "receivedDate",
+              "name": "receivedDate",
+              "type": "string",
+              "value": "={{ $json.internalDate }}"
+            },
+            {
+              "id": "emailId",
+              "name": "emailId",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "recipientEmail",
+              "name": "recipientEmail",
+              "type": "string",
+              "value": "={{ $json.To }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "gemini-model",
+      "name": "Google Gemini",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        352,
+        320
+      ],
+      "parameters": {
+        "options": {}
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "llm-chain",
+      "name": "AI Email Classifier",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        400,
+        0
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Classify this email:\n\nFrom: {{ $json.sender }}\nSubject: {{ $json.subject }}\nBody: {{ $json.bodyPreview }}\n\nReturn ONLY valid JSON with these fields: priority (HIGH/MEDIUM/LOW), category, requiresAction (boolean), summary (2-3 sentences), suggestedAction.",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are an email classification assistant. Return ONLY raw JSON, never markdown code blocks.\n\nPRIORITY: HIGH (urgent, invoice, payment, contract, legal, emergency, outage), MEDIUM (meeting, call, review, feedback, approval), LOW (newsletter, promotion, automated, noreply)\nCATEGORIES: Client, Invoice, Meeting, Support, Newsletter, Notification, Personal, Other"
+            }
+          ]
+        },
+        "batching": {}
+      }
+    },
+    {
+      "id": "filter-important",
+      "name": "Filter Important Only",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        688,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "not-low",
+              "operator": {
+                "type": "string",
+                "operation": "notContains"
+              },
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "\"priority\": \"LOW\""
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "format-message",
+      "name": "Format Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Parse JSON from LLM response\nlet text = $input.item.json.text;\ntext = text.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\nlet output;\ntry {\n  output = JSON.parse(text);\n} catch(e) {\n  const match = text.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    output = JSON.parse(match[0]);\n  } else {\n    return { json: { telegramMessage: '\\u26a0\\ufe0f Could not parse AI response: ' + text } };\n  }\n}\n\n// Get original email data from Prepare Email Data node\nconst emailData = $('Prepare Email Data').item.json;\nconst sender = emailData.sender || 'Unknown';\nconst subject = emailData.subject || 'No subject';\nconst emailId = emailData.emailId || '';\nconst recipientEmail = emailData.recipientEmail || '';\n\nconst priorityEmoji = { 'HIGH': '\\ud83d\\udd34', 'MEDIUM': '\\ud83d\\udfe1', 'LOW': '\\ud83d\\udfe2' };\nconst categoryEmoji = { 'Client': '\\ud83d\\udc64', 'Invoice': '\\ud83d\\udcb0', 'Meeting': '\\ud83d\\udcc5', 'Support': '\\ud83d\\udd27', 'Newsletter': '\\ud83d\\udcf0', 'Notification': '\\ud83d\\udd14', 'Personal': '\\ud83d\\udcac', 'Other': '\\ud83d\\udce7' };\n\nconst emoji = priorityEmoji[output.priority] || '\\ud83d\\udce7';\nconst catEmoji = categoryEmoji[output.category] || '\\ud83d\\udce7';\n\n// Gmail link with specific account using authuser\nconst gmailLink = emailId ? `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(recipientEmail)}#all/${emailId}` : '';\n\nconst message = `${emoji} *${output.priority} PRIORITY*\\n\\n\\ud83d\\udce7 *From:* ${sender}\\n\\ud83d\\udccb *Subject:* ${subject}\\n\\n\\ud83d\\udcdd *Summary:*\\n${output.summary}\\n\\n${output.requiresAction ? '\\u26a1 *Action Required:* ' + output.suggestedAction : '\\ud83d\\udccc *Note:* No immediate action needed'}\\n\\n${catEmoji} *Category:* ${output.category}${gmailLink ? '\\n\\n\\ud83d\\udcce [Open Email](' + gmailLink + ')' : ''}`;\n\nreturn {\n  json: {\n    telegramMessage: message,\n    priority: output.priority,\n    category: output.category,\n    requiresAction: output.requiresAction\n  }\n};"
+      }
+    },
+    {
+      "id": "send-telegram",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        0
+      ],
+      "parameters": {
+        "chatId": "YOUR_CHAT_ID_HERE",
+        "text": "={{ $json.telegramMessage }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "id": "f5f6900a-49e8-4332-924e-e81364a601ee",
+      "name": "Gmail Trigger1 LNM",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        208
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread"
+        }
+      }
+    },
+    {
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger Yufora",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "readStatus": "unread"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Prepare Email Data": {
+      "main": [
+        [
+          {
+            "node": "AI Email Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Email Classifier": {
+      "main": [
+        [
+          {
+            "node": "Filter Important Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Email Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Important Only": {
+      "main": [
+        [
+          {
+            "node": "Format Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger1 LNM": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger Yufora": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "Fhmq0omGZpu98HN3"
+  }
+}
