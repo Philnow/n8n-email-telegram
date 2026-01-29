@@ -102,6 +102,12 @@ Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM
 - **URL**: https://n8n.srv1299342.hstgr.cloud/workflow/arJbFrfKsJguy9tp
 - **Status**: Active (Published)
 - **Validation**: Valid (0 errors)
+- **Error Workflow**: `Fhmq0omGZpu98HN3` (Error Alert → Telegram)
+
+### Error Handling
+- Dedicated error workflow sends Telegram alert on any failure
+- Google Gemini node: retryOnFail (3 attempts, 5s delay)
+- Send Telegram Alert node: retryOnFail (3 attempts, 5s delay)
 
 ---
 
@@ -123,6 +129,8 @@ Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM
 | Add second Gmail account | ⚠️ Trigger added, needs connecting |
 | Setup documentation | ✅ |
 | Workflow live & working | ✅ |
+| Error notification workflow | ✅ Fhmq0omGZpu98HN3 |
+| Retry on flaky nodes | ✅ Gemini + Telegram |
 
 ---
 
@@ -140,9 +148,33 @@ Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM
 
 ---
 
+## Stock Market Alert Workflow
+
+- **Workflow ID**: `782rqSIRL2xZ3wqv`
+- **URL**: https://n8n.srv1299342.hstgr.cloud/workflow/782rqSIRL2xZ3wqv
+- **Status**: Created (needs credentials)
+- **Error Workflow**: Linked to `Fhmq0omGZpu98HN3`
+
+### Architecture
+```
+Schedule Trigger (every 5 min, Mon-Fri 9:30-16:00 ET) → Google Sheets watchlist → Parse → Twelve Data API → Smart Alert Logic → IF alert → Telegram + Update Sheet
+```
+
+### Setup Required
+1. Get Twelve Data API key (free) at https://twelvedata.com/register
+2. Create Google Sheet with columns: symbol | upper_limit | lower_limit | direction | cooldown_minutes | last_alert_price | last_alert_time
+3. Connect Google Sheets + Telegram credentials in n8n UI
+4. Replace `YOUR_GOOGLE_SHEET_ID_HERE` and `YOUR_TWELVE_DATA_API_KEY` in workflow nodes
+
+### Stock Symbol Format
+- US: `AAPL`, `TSLA`, `MSFT`
+- Toronto (TSX): `SHOP.TO`, `TD.TO`, `RY.TO`
+
+---
+
 ## Pending / Future
 
 1. **Connect Gmail Trigger1** → Prepare Email Data (drag connection in n8n UI)
-2. Consider adding error notification workflow
+2. ~~Consider adding error notification workflow~~ ✅ Done
 3. Consider testing AI reliability with sample emails
 4. Optionally export updated workflow.json from n8n as backup
