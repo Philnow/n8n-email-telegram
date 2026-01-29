@@ -8,14 +8,7 @@
       "typeVersion": 1.2,
       "position": [0, 0],
       "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "field": "cronExpression",
-              "expression": "*/5 9-15 * * 1-5"
-            }
-          ]
-        }
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "*/5 9-15 * * 1-5" }] }
       }
     },
     {
@@ -25,18 +18,8 @@
       "typeVersion": 4.5,
       "position": [224, 0],
       "parameters": {
-        "operation": "read",
-        "documentId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "YOUR_GOOGLE_SHEET_ID"
-        },
-        "sheetName": {
-          "__rl": true,
-          "mode": "name",
-          "value": "Sheet1"
-        },
-        "range": "Sheet1!A:G",
+        "documentId": { "__rl": true, "mode": "id", "value": "YOUR_GOOGLE_SHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "Sheet1" },
         "options": {}
       }
     },
@@ -60,22 +43,9 @@
         "url": "={{ $json.apiUrl }}",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpQueryAuth",
-        "options": {
-          "response": {
-            "response": {
-              "neverError": true
-            }
-          }
-        },
         "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "User-Agent",
-              "value": "Mozilla/5.0"
-            }
-          ]
-        }
+        "headerParameters": { "parameters": [{ "name": "User-Agent", "value": "Mozilla/5.0" }] },
+        "options": { "response": { "response": { "neverError": true } } }
       },
       "retryOnFail": true,
       "maxTries": 3,
@@ -100,24 +70,9 @@
       "position": [1120, 0],
       "parameters": {
         "conditions": {
-          "options": {
-            "version": 2,
-            "leftValue": "",
-            "caseSensitive": true,
-            "typeValidation": "loose"
-          },
+          "options": { "version": 2, "leftValue": "", "caseSensitive": true, "typeValidation": "loose" },
           "combinator": "and",
-          "conditions": [
-            {
-              "id": "has-alert",
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              },
-              "leftValue": "={{ $json.shouldAlert }}"
-            }
-          ]
+          "conditions": [{ "id": "has-alert", "operator": { "type": "boolean", "operation": "true", "singleValue": true }, "leftValue": "={{ $json.shouldAlert }}" }]
         },
         "looseTypeValidation": true,
         "options": {}
@@ -141,12 +96,9 @@
       "typeVersion": 1.2,
       "position": [1568, 0],
       "parameters": {
-        "operation": "sendMessage",
         "chatId": "YOUR_CHAT_ID",
         "text": "={{ $json.telegramMessage }}",
-        "additionalFields": {
-          "parse_mode": "Markdown"
-        }
+        "additionalFields": { "parse_mode": "Markdown" }
       },
       "retryOnFail": true,
       "maxTries": 3,
@@ -160,54 +112,21 @@
       "position": [1568, 208],
       "parameters": {
         "operation": "update",
-        "documentId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "YOUR_GOOGLE_SHEET_ID"
-        },
-        "sheetName": {
-          "__rl": true,
-          "mode": "name",
-          "value": "Sheet1"
-        },
-        "range": "Sheet1!A:G",
-        "columns": {
-          "mappingMode": "autoMapInputData",
-          "value": {},
-          "matchingColumns": ["symbol"],
-          "schema": []
-        },
+        "documentId": { "__rl": true, "mode": "id", "value": "YOUR_GOOGLE_SHEET_ID" },
+        "sheetName": { "__rl": true, "mode": "name", "value": "Sheet1" },
+        "columns": { "mappingMode": "autoMapInputData", "value": {}, "matchingColumns": ["symbol"], "schema": [] },
         "options": {}
       }
     }
   ],
   "connections": {
-    "Market Hours Trigger": {
-      "main": [[{"node": "Read Stock Watchlist", "type": "main", "index": 0}]]
-    },
-    "Read Stock Watchlist": {
-      "main": [[{"node": "Parse Watchlist Data", "type": "main", "index": 0}]]
-    },
-    "Parse Watchlist Data": {
-      "main": [[{"node": "Fetch Live Stock Price", "type": "main", "index": 0}]]
-    },
-    "Fetch Live Stock Price": {
-      "main": [[{"node": "Smart Alert Logic", "type": "main", "index": 0}]]
-    },
-    "Smart Alert Logic": {
-      "main": [[{"node": "Filter Alerts", "type": "main", "index": 0}]]
-    },
-    "Filter Alerts": {
-      "main": [[{"node": "Format Telegram Message", "type": "main", "index": 0}]]
-    },
-    "Format Telegram Message": {
-      "main": [
-        [
-          {"node": "Send Telegram Alert", "type": "main", "index": 0},
-          {"node": "Update Alert History", "type": "main", "index": 0}
-        ]
-      ]
-    }
+    "Market Hours Trigger": { "main": [[{ "node": "Read Stock Watchlist", "type": "main", "index": 0 }]] },
+    "Read Stock Watchlist": { "main": [[{ "node": "Parse Watchlist Data", "type": "main", "index": 0 }]] },
+    "Parse Watchlist Data": { "main": [[{ "node": "Fetch Live Stock Price", "type": "main", "index": 0 }]] },
+    "Fetch Live Stock Price": { "main": [[{ "node": "Smart Alert Logic", "type": "main", "index": 0 }]] },
+    "Smart Alert Logic": { "main": [[{ "node": "Filter Alerts", "type": "main", "index": 0 }]] },
+    "Filter Alerts": { "main": [[{ "node": "Format Telegram Message", "type": "main", "index": 0 }]] },
+    "Format Telegram Message": { "main": [[{ "node": "Send Telegram Alert", "type": "main", "index": 0 }, { "node": "Update Alert History", "type": "main", "index": 0 }]] }
   },
   "settings": {
     "executionOrder": "v1",

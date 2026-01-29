@@ -1,15 +1,12 @@
 {
-  "name": "Error Alert \u2192 Telegram",
+  "name": "Error Alert → Telegram",
   "nodes": [
     {
       "id": "error-trigger",
       "name": "Error Trigger",
       "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
-      "position": [
-        0,
-        0
-      ],
+      "position": [0, 0],
       "parameters": {}
     },
     {
@@ -17,13 +14,10 @@
       "name": "Format Error Message",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        224,
-        0
-      ],
+      "position": [224, 0],
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const execution = $json.execution || {};\nconst workflow = $json.workflow || {};\nconst error = execution.error || {};\n\nconst name = workflow.name || 'Unknown Workflow';\nconst errorMsg = error.message || 'Unknown error';\nconst execId = execution.id || '';\nconst execUrl = execution.url || '';\nconst now = new Date().toLocaleString('en-CA', { timeZone: 'America/Toronto' });\n\nconst message = `\ud83d\udea8 *WORKFLOW ERROR*\\n\\n\u2699\ufe0f *Workflow:* ${name}\\n\u274c *Error:* ${errorMsg}\\n\ud83d\udd50 *Time:* ${now}${execUrl ? '\\n\\n\ud83d\udd17 [View Execution](' + execUrl + ')' : ''}`;\n\nreturn { json: { telegramMessage: message } };"
+        "jsCode": "const execution = $json.execution || {};\nconst workflow = $json.workflow || {};\nconst error = execution.error || {};\n\nconst name = workflow.name || 'Unknown Workflow';\nconst errorMsg = error.message || 'Unknown error';\nconst execUrl = execution.url || '';\nconst now = new Date().toLocaleString('en-CA', { timeZone: 'America/Toronto' });\n\nconst message = `🚨 *WORKFLOW ERROR*\\n\\n⚙️ *Workflow:* ${name}\\n❌ *Error:* ${errorMsg}\\n🕐 *Time:* ${now}${execUrl ? '\\n\\n🔗 [View Execution](' + execUrl + ')' : ''}`;\n\nreturn { json: { telegramMessage: message } };"
       }
     },
     {
@@ -31,44 +25,20 @@
       "name": "Send Telegram Error Alert",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        448,
-        0
-      ],
+      "position": [448, 0],
       "parameters": {
-        "chatId": "YOUR_CHAT_ID_HERE",
+        "chatId": "YOUR_CHAT_ID",
         "text": "={{ $json.telegramMessage }}",
-        "additionalFields": {
-          "parse_mode": "Markdown"
-        }
+        "additionalFields": { "parse_mode": "Markdown" }
       }
     }
   ],
   "connections": {
-    "Error Trigger": {
-      "main": [
-        [
-          {
-            "node": "Format Error Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Error Message": {
-      "main": [
-        [
-          {
-            "node": "Send Telegram Error Alert",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
+    "Error Trigger": { "main": [[{ "node": "Format Error Message", "type": "main", "index": 0 }]] },
+    "Format Error Message": { "main": [[{ "node": "Send Telegram Error Alert", "type": "main", "index": 0 }]] }
   },
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all"
   }
 }
