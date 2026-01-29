@@ -40,8 +40,8 @@ Gmail Trigger(s) → Prepare Data → LLM Chain (Gemini) → Filter (HIGH/MEDIUM
 ```
 
 ### Nodes (8)
-1. **Gmail Trigger** - Poll every minute for unread emails (Account 1: phil@yufora.com)
-2. **Gmail Trigger1** - Poll every minute for unread emails (Account 2 - needs connecting)
+1. **Gmail Trigger Yufora** - Poll every minute for unread emails (Account 1: phil@yufora.com)
+2. **Gmail Trigger1 LNM** - Poll every minute for unread emails (Account 2: connected)
 3. **Prepare Email Data** (Set) - Extract sender, subject, body preview, emailId, recipientEmail
 4. **Google Gemini** - Gemini 2.5 Flash model (sub-node connected to LLM Chain)
 5. **AI Email Classifier** (Basic LLM Chain) - Classifies email, returns JSON
@@ -101,7 +101,7 @@ Schedule Trigger (market hours) → Google Sheets → Parse Watchlist → Fetch 
 ### Dual-API Routing
 The Parse Watchlist Data node pre-computes `apiUrl` per stock:
 - Canadian (`.TO`, `.V`, `.TRT`, `.TRV`) → Yahoo Finance: `https://query1.finance.yahoo.com/v8/finance/chart/SYMBOL?interval=1d&range=1d`
-- US → Twelve Data: `https://api.twelvedata.com/quote?symbol=SYMBOL&apikey=KEY`
+- US → Twelve Data: `https://api.twelvedata.com/quote?symbol=SYMBOL` (API key added via n8n Query Auth credential)
 
 The Smart Alert Logic node handles both response formats (Yahoo's `chart.result[0].meta` vs Twelve Data's flat `close`/`change`).
 
@@ -132,6 +132,8 @@ Linked to other workflows via `errorWorkflow` setting. Sends formatted Telegram 
 | n8n editor not reflecting API changes | Editor caches workflow in memory | Refresh browser after MCP API updates |
 | Cron running at wrong time | Server timezone Europe/Berlin | Set `settings.timezone: "America/Toronto"` |
 | `n8n_update_partial_workflow` syntax | `updateNode` needs `updates` key not `properties` | Use `updates` key |
+| Hardcoded API key in Code node | Twelve Data key visible in workflow JSON + GitHub | Use n8n HTTP Query Auth credential (encrypted) |
+| HTTP node "Credentials not found" | Auth type set via API but credential not linked | Must select credential in n8n UI + save from browser |
 
 ---
 
@@ -140,11 +142,11 @@ Linked to other workflows via `errorWorkflow` setting. Sends formatted Telegram 
 | Service | Credential | n8n Credential ID |
 |---------|-----------|-------------------|
 | Gmail (Account 1) | Gmail OAuth2 (phil@yufora.com) | QKqspapsDqWJkzDa |
-| Gmail (Account 2) | Gmail OAuth2 (2nd account) | Configured in UI |
+| Gmail (Account 2) | Gmail OAuth2 (LNM) | rCPBEsRsTb2veSWN |
 | Google Gemini | Google PaLM API | x4jAdG2mahUmKbmW |
 | Telegram | Telegram API (N8n517bot) | KSDajeVj98U3LS8y |
-| Google Sheets | Google Sheets OAuth2 (separate account) | Configured in UI |
-| Twelve Data | HTTP Query Auth (`TwelveApiKey`) | Configured in UI |
+| Google Sheets | Google Sheets OAuth2 (separate account) | nOnxhwVvmjd4CNDE |
+| Twelve Data | HTTP Query Auth (name=`apikey`) | V0yhxFJiC7EXlr5l |
 
 ---
 
@@ -168,8 +170,17 @@ Linked to other workflows via `errorWorkflow` setting. Sends formatted Telegram 
 
 ---
 
+## Security Best Practices
+
+- **Never hardcode API keys** in Code nodes or workflow JSON — use n8n Credential Manager
+- **HTTP Query Auth** credential adds query params (e.g. `?apikey=VALUE`) automatically, encrypted at rest
+- **Exported JSON files** use placeholders (`YOUR_CHAT_ID`, `YOUR_GOOGLE_SHEET_ID`) — no secrets in git
+- **Rotate exposed keys** if they were ever committed to a public repo
+
+---
+
 ## Pending / Future
 
-1. **Connect Gmail Trigger1** → Prepare Email Data (drag connection in n8n UI)
-2. Consider testing AI reliability with sample emails
-3. Consider adding more stock alert features (volume alerts, daily summary)
+1. Consider testing AI reliability with sample emails
+2. Consider adding more stock alert features (volume alerts, daily summary)
+3. Rotate Twelve Data API key (old key was briefly exposed on GitHub)
